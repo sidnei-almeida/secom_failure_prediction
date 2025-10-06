@@ -15,4 +15,5 @@ plotly>=5.17.0
 
 # Utilitários
 Pillow>=10.0.0
+requests>=2.31.0
 

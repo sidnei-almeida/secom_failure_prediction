@@ -629,45 +629,58 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Funções auxiliares
-def get_project_root():
-    """Retorna o diretório raiz do projeto"""
-    return Path(__file__).parent
+# URLs dos arquivos no GitHub
+GITHUB_REPO = "https://raw.githubusercontent.com/sidnei-almeida/secom_failure_prediction/main"
+METADATA_URL = f"{GITHUB_REPO}/training/secom_autoencoder_metadata.json"
+DATASET_URL = f"{GITHUB_REPO}/data/secom_cleaned_dataset.csv"
+MODEL_URL = f"{GITHUB_REPO}/models/secom_autoencoder_model.keras"
 
 @st.cache_data
 def load_metadata():
-    """Carrega os metadados do treinamento"""
-    metadata_path = get_project_root() / 'training' / 'secom_autoencoder_metadata.json'
+    """Carrega os metadados do treinamento do GitHub"""
     try:
-        if metadata_path.exists():
-            with open(metadata_path, 'r') as f:
-                return json.load(f)
-        return None
+        import requests
+        response = requests.get(METADATA_URL)
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
-        st.error(f"Erro ao carregar metadados: {e}")
+        st.error(f"Erro ao carregar metadados do GitHub: {e}")
         return None
 
 @st.cache_data
 def load_dataset():
-    """Carrega o dataset limpo"""
-    data_path = get_project_root() / 'data' / 'secom_cleaned_dataset.csv'
+    """Carrega o dataset limpo do GitHub"""
     try:
-        if data_path.exists():
-            return pd.read_csv(data_path)
-        return None
+        return pd.read_csv(DATASET_URL)
     except Exception as e:
-        st.error(f"Erro ao carregar dataset: {e}")
+        st.error(f"Erro ao carregar dataset do GitHub: {e}")
         return None
 
 @st.cache_resource
 def load_model():
-    """Carrega o modelo autoencoder"""
-    model_path = get_project_root() / 'models' / 'secom_autoencoder_model.keras'
+    """Carrega o modelo autoencoder do GitHub"""
     try:
-        if model_path.exists():
-            return tf.keras.models.load_model(str(model_path))
-        return None
+        import requests
+        import tempfile
+        
+        # Baixar modelo para arquivo temporário
+        response = requests.get(MODEL_URL)
+        response.raise_for_status()
+        
+        # Salvar temporariamente e carregar
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.keras') as tmp_file:
+            tmp_file.write(response.content)
+            tmp_path = tmp_file.name
+        
+        model = tf.keras.models.load_model(tmp_path)
+        
+        # Remover arquivo temporário
+        import os
+        os.unlink(tmp_path)
+        
+        return model
     except Exception as e:
-        st.error(f"Erro ao carregar modelo: {e}")
+        st.error(f"Erro ao carregar modelo do GitHub: {e}")
         return None
 
 def show_header():

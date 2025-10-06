@@ -27,7 +27,27 @@ O **SECOM Failure Prediction** é um sistema de detecção de anomalias desenvol
 - **F1-Score**: 0.396
 - **Accuracy Geral**: 71.5%
 
-## 🚀 Como Executar
+## 🌐 Deploy no Streamlit Cloud
+
+O aplicativo está **totalmente configurado** para deploy no Streamlit Cloud! Os dados e modelos são carregados automaticamente do GitHub.
+
+### Como fazer deploy:
+
+1. **Faça push do código para o GitHub** (incluindo as pastas `data/`, `models/`, `training/`):
+```bash
+git add .
+git commit -m "Deploy ready"
+git push origin main
+```
+
+2. **Acesse** [share.streamlit.io](https://share.streamlit.io)
+3. **Conecte** seu repositório GitHub
+4. **Selecione** o arquivo principal: `app.py`
+5. **Deploy automático!** 🚀
+
+O app carregará automaticamente todos os recursos necessários do GitHub.
+
+## 🚀 Executar Localmente
 
 ### Pré-requisitos
 
