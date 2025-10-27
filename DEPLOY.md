@@ -1,26 +1,26 @@
-# 🚀 Guia de Deploy - Streamlit Cloud
+# 🚀 Deployment Guide - Streamlit Cloud
 
-## ✅ Checklist Pré-Deploy
+## ✅ Pre-Deployment Checklist
 
-### 1. Arquivos Configurados
-- [x] `app.py` - Carrega recursos do GitHub
-- [x] `requirements.txt` - Todas as dependências listadas
-- [x] `.streamlit/config.toml` - Tema dark premium configurado
-- [x] `.gitignore` - Configurado corretamente
-- [x] `README.md` - Instruções de deploy atualizadas
+### 1. Configured Files
+- [x] `app.py` - Loads resources from GitHub
+- [x] `requirements.txt` - All dependencies listed
+- [x] `.streamlit/config.toml` - Premium dark theme configured
+- [x] `.gitignore` - Configured correctly
+- [x] `README.md` - Deployment instructions updated
 
-### 2. URLs do GitHub Configuradas
-O app está configurado para carregar automaticamente do repositório:
+### 2. GitHub URLs Configured
+The app is configured to automatically load from the repository:
 ```
 https://github.com/sidnei-almeida/secom_failure_prediction
 ```
 
-**Arquivos carregados automaticamente:**
+**Files automatically loaded:**
 - 📊 `data/secom_cleaned_dataset.csv`
 - 🧠 `models/secom_autoencoder_model.keras`
 - 📝 `training/secom_autoencoder_metadata.json`
 
-### 3. Dependências Necessárias
+### 3. Required Dependencies
 ```
 ✓ streamlit>=1.28.0
 ✓ streamlit-option-menu>=0.3.6
@@ -33,80 +33,79 @@ https://github.com/sidnei-almeida/secom_failure_prediction
 ✓ requests>=2.31.0
 ```
 
-## 📤 Passos para Deploy
+## 📤 Deployment Steps
 
-### 1. Commit e Push para GitHub
+### 1. Commit and Push to GitHub
 ```bash
-# Adicionar todos os arquivos (incluindo data/, models/, training/)
+# Add all files (including data/, models/, training/)
 git add .
 
 # Commit
-git commit -m "Deploy: App pronto para Streamlit Cloud"
+git commit -m "Deploy: App ready for Streamlit Cloud"
 
-# Push para main
+# Push to main
 git push origin main
 ```
 
-### 2. Deploy no Streamlit Cloud
+### 2. Deploy to Streamlit Cloud
 
-1. Acesse: [share.streamlit.io](https://share.streamlit.io)
-2. Faça login com GitHub
-3. Clique em "New app"
-4. Selecione:
+1. Access: [share.streamlit.io](https://share.streamlit.io)
+2. Login with GitHub
+3. Click "New app"
+4. Select:
    - **Repository**: `sidnei-almeida/secom_failure_prediction`
    - **Branch**: `main`
    - **Main file path**: `app.py`
-5. Clique em "Deploy!"
+5. Click "Deploy!"
 
-### 3. Aguarde o Build
-O Streamlit Cloud irá:
-- Instalar as dependências do `requirements.txt`
-- Carregar os arquivos do GitHub automaticamente
-- Aplicar o tema do `.streamlit/config.toml`
-- Iniciar o app
+### 3. Wait for Build
+Streamlit Cloud will:
+- Install dependencies from `requirements.txt`
+- Automatically load files from GitHub
+- Apply theme from `.streamlit/config.toml`
+- Start the app
 
-⏱️ Tempo estimado: 3-5 minutos
+⏱️ Estimated time: 3-5 minutes
 
-## 🎨 Recursos do App
+## 🎨 App Features
 
-### Páginas
-1. **🏠 Home** - Overview e métricas principais
-2. **📊 Análise de Dados** - Exploração do dataset SECOM
-3. **🧠 Modelo** - Arquitetura do Autoencoder
-4. **📈 Treinamento** - Histórico e performance
-5. **🔬 Teste** - Detecção de anomalias em tempo real
+### Pages
+1. **🏠 Home** - Overview and main metrics
+2. **📊 Data Analysis** - SECOM dataset exploration
+3. **🧠 Model** - Autoencoder architecture
+4. **📈 Training** - History and performance
+5. **🔬 Test** - Real-time anomaly detection
 
 ### Design
-- 🌑 Tema dark premium
-- 🔥 Paleta de cores quente (laranja/fogo)
-- ✨ Efeitos visuais elegantes (glows, shadows)
-- 📱 Layout responsivo
+- 🌑 Premium dark theme
+- 🔥 Hot color palette (orange/fire)
+- ✨ Elegant visual effects (glows, shadows)
+- 📱 Responsive layout
 
-### Thresholds de Detecção
-- **Balanced (0.45)**: Equilíbrio entre precision e recall
-- **Conservative (0.50)**: Menos falsos positivos
+### Detection Thresholds
+- **Balanced (0.45)**: Balance between precision and recall
+- **Conservative (0.50)**: Fewer false positives
 
 ## 🔧 Troubleshooting
 
-### Erro ao carregar dados
-- Verifique se os arquivos estão commitados no GitHub
-- Confirme que o repositório está público ou que o Streamlit Cloud tem acesso
-- Branch deve ser `main`
+### Error loading data
+- Verify files are committed to GitHub
+- Confirm repository is public or Streamlit Cloud has access
+- Branch must be `main`
 
-### Erro de dependências
-- Verifique `requirements.txt`
-- TensorFlow CPU é usado para compatibilidade
+### Dependency error
+- Check `requirements.txt`
+- TensorFlow CPU is used for compatibility
 
-### Erro de tema
-- Arquivo `.streamlit/config.toml` deve estar no repositório
-- Não deve estar no `.gitignore`
+### Theme error
+- File `.streamlit/config.toml` must be in the repository
+- Must not be in `.gitignore`
 
-## 📞 Suporte
+## 📞 Support
 
-- [Documentação Streamlit Cloud](https://docs.streamlit.io/streamlit-community-cloud)
-- [Fórum Streamlit](https://discuss.streamlit.io/)
+- [Streamlit Cloud Documentation](https://docs.streamlit.io/streamlit-community-cloud)
+- [Streamlit Forum](https://discuss.streamlit.io/)
 
 ---
 
-**✨ Pronto para deployment!** O app está 100% configurado para rodar no Streamlit Cloud sem nenhuma configuração adicional.
-
+**✨ Ready for deployment!** The app is 100% configured to run on Streamlit Cloud without any additional configuration.
