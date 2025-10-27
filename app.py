@@ -11,20 +11,20 @@ import tensorflow as tf
 from sklearn.preprocessing import StandardScaler
 import io
 
-# Configuração de cores para gráficos (Design System)
+# Chart color configuration (Design System)
 PLOT_COLORS = {
-    'bg': 'rgba(0,0,0,0)',  # Fundo transparente para usar o tema do Streamlit
-    'primary': '#ff6b35',    # Laranja quente
-    'secondary': '#f7931e',  # Laranja médio
-    'tertiary': '#ffb627',   # Amarelo dourado
-    'success': '#6bff6b',    # Verde para status normal
-    'grid': 'rgba(255, 107, 53, 0.08)',  # Grid sutil
-    'text': '#fafafa',       # Texto claro
-    'font': 'Inter',         # Fonte consistente
-    'font_size': 11          # Tamanho de fonte padrão para gráficos
+    'bg': 'rgba(0,0,0,0)',  # Transparent background to use Streamlit theme
+    'primary': '#ff6b35',    # Hot orange
+    'secondary': '#f7931e',  # Medium orange
+    'tertiary': '#ffb627',   # Golden yellow
+    'success': '#6bff6b',    # Green for normal status
+    'grid': 'rgba(255, 107, 53, 0.08)',  # Subtle grid
+    'text': '#fafafa',       # Light text
+    'font': 'Inter',         # Consistent font
+    'font_size': 11          # Default font size for charts
 }
 
-# Configuração da página
+# Page configuration
 st.set_page_config(
     page_title="SECOM Failure Prediction - Anomaly Detection System",
     page_icon="⚙️",
@@ -32,21 +32,21 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS customizado - Design Profissional com Acent os Quentes
+# Custom CSS - Professional Design with Hot Accents
 st.markdown("""
     <style>
-    /* Importar fonte moderna e profissional */
+    /* Import modern and professional font */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
     
-    /* Design System - Variáveis CSS */
+    /* Design System - CSS Variables */
     :root {
-        /* Paleta de Acentos Quentes */
+        /* Hot Accents Palette */
         --accent-primary: #ff6b35;
         --accent-secondary: #f7931e;
         --accent-tertiary: #ffb627;
         --accent-gradient: linear-gradient(135deg, #ff6b35 0%, #f7931e 50%, #ffb627 100%);
         
-        /* Efeitos Visuais */
+        /* Visual Effects */
         --glow-sm: 0 0 8px rgba(255, 107, 53, 0.12);
         --glow-md: 0 0 16px rgba(255, 107, 53, 0.2);
         --glow-lg: 0 0 24px rgba(255, 107, 53, 0.3);
@@ -637,58 +637,111 @@ MODEL_URL = f"{GITHUB_REPO}/models/secom_autoencoder_model.keras"
 
 @st.cache_data
 def load_metadata():
-    """Carrega os metadados do treinamento do GitHub"""
+    """Loads training metadata from local or GitHub"""
+    import os
+    import json
+    import requests
+    
+    # Try loading from local first
+    local_metadata_path = "training/secom_autoencoder_metadata.json"
+    if os.path.exists(local_metadata_path):
+        try:
+            with open(local_metadata_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            st.warning(f"Could not load local metadata: {e}")
+    
+    # Fallback to GitHub
     try:
-        import requests
-        response = requests.get(METADATA_URL)
+        response = requests.get(METADATA_URL, timeout=30)
         response.raise_for_status()
         return response.json()
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429:
+            st.error("🚫 GitHub rate limit exceeded. Please wait a few minutes or place the metadata file locally in 'training/secom_autoencoder_metadata.json'")
+        else:
+            st.error(f"Error loading metadata from GitHub (HTTP {e.response.status_code}): {e}")
+        return None
     except Exception as e:
-        st.error(f"Erro ao carregar metadados do GitHub: {e}")
+        st.error(f"Error loading metadata from GitHub: {e}")
         return None
 
 @st.cache_data
 def load_dataset():
-    """Carrega o dataset limpo do GitHub"""
+    """Loads the cleaned dataset from local or GitHub"""
+    import os
+    import requests
+    
+    # Try loading from local first
+    local_dataset_path = "data/secom_cleaned_dataset.csv"
+    if os.path.exists(local_dataset_path):
+        try:
+            return pd.read_csv(local_dataset_path)
+        except Exception as e:
+            st.warning(f"Could not load local dataset: {e}")
+    
+    # Fallback to GitHub
     try:
         return pd.read_csv(DATASET_URL)
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429:
+            st.error("🚫 GitHub rate limit exceeded. Please wait a few minutes or place the dataset file locally in 'data/secom_cleaned_dataset.csv'")
+        else:
+            st.error(f"Error loading dataset from GitHub (HTTP {e.response.status_code}): {e}")
+        return None
     except Exception as e:
-        st.error(f"Erro ao carregar dataset do GitHub: {e}")
+        st.error(f"Error loading dataset from GitHub: {e}")
         return None
 
 @st.cache_resource
 def load_model():
-    """Carrega o modelo autoencoder do GitHub"""
+    """Loads the autoencoder model from local or GitHub"""
+    import os
+    import requests
+    import tempfile
+    
+    # Try loading from local first
+    local_model_path = "models/secom_autoencoder_model.keras"
+    if os.path.exists(local_model_path):
+        try:
+            model = tf.keras.models.load_model(local_model_path)
+            return model
+        except Exception as e:
+            st.warning(f"Could not load local model: {e}")
+    
+    # Fallback to GitHub with better error handling
     try:
-        import requests
-        import tempfile
-        
-        # Baixar modelo para arquivo temporário
-        response = requests.get(MODEL_URL)
+        # Download model to temporary file
+        response = requests.get(MODEL_URL, timeout=30)
         response.raise_for_status()
         
-        # Salvar temporariamente e carregar
+        # Save temporarily and load
         with tempfile.NamedTemporaryFile(delete=False, suffix='.keras') as tmp_file:
             tmp_file.write(response.content)
             tmp_path = tmp_file.name
         
         model = tf.keras.models.load_model(tmp_path)
         
-        # Remover arquivo temporário
-        import os
+        # Remove temporary file
         os.unlink(tmp_path)
         
         return model
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429:
+            st.error("🚫 GitHub rate limit exceeded. Please wait a few minutes or place the model file locally in 'models/secom_autoencoder_model.keras'")
+        else:
+            st.error(f"Error loading model from GitHub (HTTP {e.response.status_code}): {e}")
+        return None
     except Exception as e:
-        st.error(f"Erro ao carregar modelo do GitHub: {e}")
+        st.error(f"Error loading model from GitHub: {e}")
         return None
 
 def show_header():
-    """Exibe o header principal"""
+    """Displays the main header"""
     st.markdown("""
         <div style='text-align: center; padding: 1.5rem 0 1rem 0;'>
             <h1 class="gradient-title">SECOM Failure Prediction</h1>
-            <p class="subtitle">Sistema Avançado de Detecção de Anomalias em Manufatura de Semicondutores</p>
+            <p class="subtitle">Advanced Anomaly Detection System for Semiconductor Manufacturing</p>
         </div>
         <div style='margin: 2rem 0; height: 1px; background: var(--border-color);'></div>
     """, unsafe_allow_html=True)
@@ -710,10 +763,10 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
     
-    # Menu de navegação - Elegante e Compacto
+    # Navigation menu - Elegant and Compact
     selected = option_menu(
         menu_title=None,
-        options=["Home", "Análise de Dados", "Modelo", "Treinamento", "Teste"],
+        options=["Home", "Data Analysis", "Model", "Training", "Test"],
         icons=["house-fill", "graph-up-arrow", "cpu-fill", "layers-fill", "play-circle-fill"],
         menu_icon=None,
         default_index=0,
@@ -742,7 +795,7 @@ with st.sidebar:
     
     st.markdown("<div style='margin: 2rem 0;'></div>", unsafe_allow_html=True)
     
-    # Status do sistema - Compacto e Elegante
+    # System status - Compact and Elegant
     metadata = load_metadata()
     if metadata:
         st.markdown(f"""
@@ -750,10 +803,10 @@ with st.sidebar:
                         margin-bottom: 0.75rem; border: 1px solid var(--border-subtle);'>
                 <div style='font-size: 0.6875rem; font-weight: 600; margin-bottom: 0.5rem; 
                            opacity: 0.9; letter-spacing: 0.05em; text-transform: uppercase;'>
-                    Status do Sistema
+                    System Status
                 </div>
                 <div style='font-size: 0.6875rem; line-height: 1.6; opacity: 0.7;'>
-                    <div style='margin-bottom: 0.25rem;'>• Modelo: {metadata['model_type']}</div>
+                    <div style='margin-bottom: 0.25rem;'>• Model: {metadata['model_type']}</div>
                     <div style='margin-bottom: 0.25rem;'>• Threshold: {metadata['final_anomaly_threshold']}</div>
                     <div>• Accuracy: {metadata['final_performance_on_test_set']['accuracy']:.1%}</div>
                 </div>
@@ -789,7 +842,7 @@ if selected == "Home":
     df = load_dataset()
     
     if metadata and df is not None:
-        # Métricas principais
+        # Main metrics
         col1, col2, col3, col4 = st.columns(4)
         
         perf = metadata['final_performance_on_test_set']
@@ -797,7 +850,7 @@ if selected == "Home":
         with col1:
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Recall (Falhas)</div>
+                    <div class="metric-label">Recall (Failures)</div>
                     <div class="metric-value">{perf['recall_for_anomaly']:.1%}</div>
                 </div>
             """, unsafe_allow_html=True)
@@ -805,7 +858,7 @@ if selected == "Home":
         with col2:
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Precision (Falhas)</div>
+                    <div class="metric-label">Precision (Failures)</div>
                     <div class="metric-value">{perf['precision_for_anomaly']:.1%}</div>
                 </div>
             """, unsafe_allow_html=True)
@@ -821,35 +874,35 @@ if selected == "Home":
         with col4:
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Accuracy Geral</div>
+                    <div class="metric-label">Overall Accuracy</div>
                     <div class="metric-value">{perf['accuracy']:.1%}</div>
                 </div>
             """, unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Conteúdo principal em 2 colunas
+        # Main content in 2 columns
         col1, col2 = st.columns([3, 2])
         
         with col1:
-            st.markdown("### Sobre o Projeto")
+            st.markdown("### About the Project")
             st.markdown(f"""
             <div class="info-box">
             <p>
-            O <b>SECOM Failure Prediction</b> é um sistema avançado de detecção de anomalias 
-            desenvolvido para identificar falhas em processos de manufatura de semicondutores. 
-            Utilizando um <b>Autoencoder Neural Network</b>, o sistema aprende padrões de 
-            operação normal e detecta desvios que podem indicar potenciais falhas.
+            The <b>SECOM Failure Prediction</b> is an advanced anomaly detection system 
+            developed to identify failures in semiconductor manufacturing processes. 
+            Using a <b>Neural Network Autoencoder</b>, the model learns normal operation 
+            patterns and detects deviations that may indicate potential failures.
             </p>
             <p>
-            O dataset SECOM contém <b>{len(df)} registros</b> de sensores, com 
-            <b>{len(df.columns)-2} features</b> após limpeza, representando medições 
-            de diversos pontos do processo de fabricação.
+            The SECOM dataset contains <b>{len(df)} sensor records</b>, with 
+            <b>{len(df.columns)-2} features</b> after cleaning, representing measurements 
+            from various points in the manufacturing process.
             </p>
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown("### Tecnologias Utilizadas")
+            st.markdown("### Technologies Used")
             tech_cols = st.columns(3)
             with tech_cols[0]:
                 st.markdown("**🧠 TensorFlow/Keras**\n\nDeep Learning Framework")
@@ -859,16 +912,16 @@ if selected == "Home":
                 st.markdown("**⚡ Anomaly Detection**\n\nUnsupervised Learning")
         
         with col2:
-            st.markdown("### Distribuição de Classes")
+            st.markdown("### Class Distribution")
             
-            # Calcular distribuição
+            # Calculate distribution
             class_counts = df['Pass/Fail'].value_counts()
             total = len(df)
             normal_count = class_counts.get(-1, 0)
             anomaly_count = class_counts.get(1, 0)
             
             fig = go.Figure(data=[go.Pie(
-                labels=['Normal', 'Falha'],
+                labels=['Normal', 'Failure'],
                 values=[normal_count, anomaly_count],
                 hole=0.6,
                 marker=dict(colors=[PLOT_COLORS['success'], PLOT_COLORS['primary']]),
@@ -901,64 +954,64 @@ if selected == "Home":
                         <span class='status-badge status-normal'>Normal: {normal_count} ({normal_count/total:.1%})</span>
                     </div>
                     <div style='display: inline-block; margin: 0 1rem;'>
-                        <span class='status-badge status-anomaly'>Falha: {anomaly_count} ({anomaly_count/total:.1%})</span>
+                        <span class='status-badge status-anomaly'>Failure: {anomaly_count} ({anomaly_count/total:.1%})</span>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
         
         st.markdown("<hr>", unsafe_allow_html=True)
         
-        # Insights principais
-        st.markdown("### Principais Insights")
+        # Main insights
+        st.markdown("### Main Insights")
         
         insight_cols = st.columns(3)
         
         with insight_cols[0]:
             st.markdown("""
             <div class="info-box">
-                <h4>Desbalanceamento Extremo</h4>
-                <p>O dataset apresenta desbalanceamento severo (~93% normal vs ~7% falhas), 
-                tornando a abordagem de detecção de anomalias ideal para este cenário.</p>
+                <h4>Extreme Imbalance</h4>
+                <p>The dataset shows severe imbalance (~93% normal vs ~7% failures), 
+                making the anomaly detection approach ideal for this scenario.</p>
             </div>
             """, unsafe_allow_html=True)
         
         with insight_cols[1]:
             st.markdown("""
             <div class="info-box">
-                <h4>Alta Dimensionalidade</h4>
-                <p>Com 558 features após limpeza, o autoencoder comprime os dados para 
-                32 dimensões, capturando apenas os padrões essenciais.</p>
+                <h4>High Dimensionality</h4>
+                <p>With 558 features after cleaning, the autoencoder compresses data to 
+                32 dimensions, capturing only essential patterns.</p>
             </div>
             """, unsafe_allow_html=True)
         
         with insight_cols[2]:
             st.markdown("""
             <div class="info-box">
-                <h4>Erro de Reconstrução</h4>
-                <p>O modelo detecta anomalias através do erro de reconstrução: produtos 
-                normais são reconstruídos com baixo erro, falhas com alto erro.</p>
+                <h4>Reconstruction Error</h4>
+                <p>The model detects anomalies through reconstruction error: normal products 
+                are reconstructed with low error, failures with high error.</p>
             </div>
             """, unsafe_allow_html=True)
     
     else:
-        st.error("Não foi possível carregar os dados do projeto. Verifique os arquivos.")
+        st.error("Could not load project data. Check the files.")
 
-# PÁGINA: ANÁLISE DE DADOS
-elif selected == "Análise de Dados":
+# PAGE: DATA ANALYSIS
+elif selected == "Data Analysis":
     show_header()
     
     df = load_dataset()
     
     if df is not None:
-        st.markdown("### Exploração do Dataset SECOM")
+        st.markdown("### SECOM Dataset Exploration")
         
-        # Informações gerais
+        # General information
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Total de Registros</div>
+                    <div class="metric-label">Total Records</div>
                     <div class="metric-value">{len(df)}</div>
                 </div>
             """, unsafe_allow_html=True)
@@ -975,7 +1028,7 @@ elif selected == "Análise de Dados":
             normal_count = (df['Pass/Fail'] == -1).sum()
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Amostras Normais</div>
+                    <div class="metric-label">Normal Samples</div>
                     <div class="metric-value">{normal_count}</div>
                 </div>
             """, unsafe_allow_html=True)
@@ -984,23 +1037,23 @@ elif selected == "Análise de Dados":
             anomaly_count = (df['Pass/Fail'] == 1).sum()
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Falhas Detectadas</div>
+                    <div class="metric-label">Detected Failures</div>
                     <div class="metric-value">{anomaly_count}</div>
                 </div>
             """, unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Tabs com análises
-        tab1, tab2, tab3 = st.tabs(["Estatísticas Descritivas", "Distribuições", "Correlações"])
+        # Tabs with analyses
+        tab1, tab2, tab3 = st.tabs(["Descriptive Statistics", "Distributions", "Correlations"])
         
         with tab1:
-            st.markdown("#### Estatísticas das Features")
+            st.markdown("#### Feature Statistics")
             
-            # Remover colunas Time e Pass/Fail
+            # Remove Time and Pass/Fail columns
             features_df = df.drop(columns=['Time', 'Pass/Fail'])
             
-            # Estatísticas descritivas
+            # Descriptive statistics
             stats = features_df.describe().T
             stats['missing'] = features_df.isnull().sum()
             stats['missing_pct'] = (stats['missing'] / len(features_df)) * 100
@@ -1010,12 +1063,12 @@ elif selected == "Análise de Dados":
                 use_container_width=True
             )
             
-            st.info(f"Mostrando as primeiras 20 features de um total de {len(features_df.columns)} features.")
+            st.info(f"Showing the first 20 features out of {len(features_df.columns)} total features.")
         
         with tab2:
-            st.markdown("#### Distribuição de Valores nas Features")
+            st.markdown("#### Feature Value Distribution")
             
-            # Selecionar algumas features aleatórias para visualizar
+            # Select some random features to visualize
             sample_features = features_df.columns[:6]
             
             fig = make_subplots(
@@ -1051,9 +1104,9 @@ elif selected == "Análise de Dados":
             st.plotly_chart(fig, use_container_width=True)
         
         with tab3:
-            st.markdown("#### Análise de Correlação")
+            st.markdown("#### Correlation Analysis")
             
-            # Calcular matriz de correlação para um subset de features
+            # Calculate correlation matrix for a subset of features
             sample_features = features_df.columns[:15]
             corr_matrix = features_df[sample_features].corr()
             
@@ -1062,7 +1115,7 @@ elif selected == "Análise de Dados":
                 x=corr_matrix.columns,
                 y=corr_matrix.columns,
                 colorscale=[[0, '#0e1117'], [0.5, PLOT_COLORS['secondary']], [1, PLOT_COLORS['primary']]],
-                colorbar=dict(title="Correlação")
+                colorbar=dict(title="Correlation")
             ))
             
             fig.update_layout(
@@ -1074,48 +1127,48 @@ elif selected == "Análise de Dados":
             
             st.plotly_chart(fig, use_container_width=True)
             
-            st.info("Mostrando correlação entre as primeiras 15 features para melhor visualização.")
+            st.info("Showing correlation between the first 15 features for better visualization.")
     
     else:
-        st.error("Dataset não encontrado. Verifique o arquivo 'data/secom_cleaned_dataset.csv'.")
+        st.error("Dataset not found. Check the file 'data/secom_cleaned_dataset.csv'.")
 
-# PÁGINA: MODELO
-elif selected == "Modelo":
+# PAGE: MODEL
+elif selected == "Model":
     show_header()
     
-    st.markdown("### Arquitetura do Autoencoder")
+    st.markdown("### Autoencoder Architecture")
     
     col1, col2 = st.columns([2, 3])
     
     with col1:
         st.markdown("""
         <div class="info-box">
-            <h4>O que é um Autoencoder?</h4>
+            <h4>What is an Autoencoder?</h4>
             <p style='line-height: 1.8;'>
-            Um <b>Autoencoder</b> é um tipo de rede neural que aprende a comprimir dados 
-            em uma representação latente menor e depois reconstruí-los. É composto por duas partes:
+            An <b>Autoencoder</b> is a type of neural network that learns to compress data 
+            into a smaller latent representation and then reconstruct it. It consists of two parts:
             </p>
             <ul style='line-height: 2;'>
-                <li><b>Encoder:</b> Comprime os dados de 558 features para 32 dimensões</li>
-                <li><b>Decoder:</b> Reconstrói os dados originais a partir da representação comprimida</li>
+                <li><b>Encoder:</b> Compresses data from 558 features to 32 dimensions</li>
+                <li><b>Decoder:</b> Reconstructs original data from the compressed representation</li>
             </ul>
             <p style='line-height: 1.8; margin-top: 1rem;'>
-            Para detecção de anomalias, o modelo é treinado <b>apenas com dados normais</b>. 
-            Quando encontra uma anomalia (falha), o erro de reconstrução é significativamente maior.
+            For anomaly detection, the model is trained <b>only on normal data</b>. 
+            When it encounters an anomaly (failure), the reconstruction error is significantly higher.
             </p>
         </div>
         """, unsafe_allow_html=True)
         
-        # Métricas da arquitetura
-        st.markdown("#### Especificações Técnicas")
+        # Architecture metrics
+        st.markdown("#### Technical Specifications")
         st.markdown("""
         <div class="info-box">
             <ul style='line-height: 2;'>
-                <li><b>Input:</b> 558 features (sensores SECOM)</li>
+                <li><b>Input:</b> 558 features (SECOM sensors)</li>
                 <li><b>Encoder:</b> 558 → 128 → 64 → 32</li>
-                <li><b>Latent Space:</b> 32 dimensões (bottleneck)</li>
+                <li><b>Latent Space:</b> 32 dimensions (bottleneck)</li>
                 <li><b>Decoder:</b> 32 → 64 → 128 → 558</li>
-                <li><b>Ativação:</b> ReLU (camadas ocultas)</li>
+                <li><b>Activation:</b> ReLU (hidden layers)</li>
                 <li><b>Loss Function:</b> MAE (Mean Absolute Error)</li>
                 <li><b>Optimizer:</b> Adam</li>
             </ul>
@@ -1123,12 +1176,12 @@ elif selected == "Modelo":
         """, unsafe_allow_html=True)
     
     with col2:
-        st.markdown("#### Visualização da Arquitetura")
+        st.markdown("#### Architecture Visualization")
         
-        # Criar visualização da arquitetura com Plotly
+        # Create architecture visualization with Plotly
         fig = go.Figure()
         
-        # Definir posições das camadas
+        # Define layer positions
         layers = [
             {"name": "Input", "size": 558, "y": 0, "color": PLOT_COLORS['primary']},
             {"name": "Dense 128", "size": 128, "y": 1, "color": PLOT_COLORS['secondary']},
@@ -1139,9 +1192,9 @@ elif selected == "Modelo":
             {"name": "Output", "size": 558, "y": 6, "color": PLOT_COLORS['primary']},
         ]
         
-        # Adicionar nós
+        # Add nodes
         for layer in layers:
-            # Normalizar tamanho para visualização
+            # Normalize size for visualization
             node_size = 20 + (layer["size"] / 558) * 40
             
             fig.add_trace(go.Scatter(
@@ -1161,7 +1214,7 @@ elif selected == "Modelo":
                 hovertemplate=f"<b>{layer['name']}</b><br>{layer['size']} neurons<extra></extra>"
             ))
         
-        # Adicionar linhas conectando as camadas
+        # Add lines connecting the layers
         for i in range(len(layers) - 1):
             fig.add_trace(go.Scatter(
                 x=[0, 0],
@@ -1194,23 +1247,23 @@ elif selected == "Modelo":
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # Explicação do bottleneck
+        # Bottleneck explanation
         st.markdown("""
         <div class="info-box">
-            <h4>🔍 Bottleneck (Gargalo)</h4>
+            <h4>🔍 Bottleneck</h4>
             <p style='line-height: 1.8;'>
-            A camada de 32 neurônios é o <b>bottleneck</b> - o ponto mais estreito da rede. 
-            Ela força o modelo a aprender apenas as características mais importantes dos dados, 
-            descartando ruído e informações redundantes. Esta compressão é essencial para 
-            a detecção de anomalias.
+            The 32-neuron layer is the <b>bottleneck</b> - the narrowest point of the network. 
+            It forces the model to learn only the most important data features, 
+            discarding noise and redundant information. This compression is essential for 
+            anomaly detection.
             </p>
         </div>
         """, unsafe_allow_html=True)
     
     st.markdown("<hr>", unsafe_allow_html=True)
     
-    # Explicação do processo de detecção
-    st.markdown("### Como Funciona a Detecção de Anomalias")
+    # Anomaly detection process explanation
+    st.markdown("### How Anomaly Detection Works")
     
     process_cols = st.columns(4)
     
@@ -1218,8 +1271,8 @@ elif selected == "Modelo":
         st.markdown("""
         <div class="info-box" style="text-align: center;">
             <h3 style="font-size: 2.5em; margin: 0.5rem 0;">1️⃣</h3>
-            <h4>Treinamento</h4>
-            <p>Modelo aprende com dados normais apenas (1170 amostras)</p>
+            <h4>Training</h4>
+            <p>Model learns from normal data only (1170 samples)</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1227,8 +1280,8 @@ elif selected == "Modelo":
         st.markdown("""
         <div class="info-box" style="text-align: center;">
             <h3 style="font-size: 2.5em; margin: 0.5rem 0;">2️⃣</h3>
-            <h4>Reconstrução</h4>
-            <p>Dados de teste passam pelo encoder e decoder</p>
+            <h4>Reconstruction</h4>
+            <p>Test data passes through encoder and decoder</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1236,8 +1289,8 @@ elif selected == "Modelo":
         st.markdown("""
         <div class="info-box" style="text-align: center;">
             <h3 style="font-size: 2.5em; margin: 0.5rem 0;">3️⃣</h3>
-            <h4>Erro de Reconstrução</h4>
-            <p>Calcula MAE entre input e output reconstruído</p>
+            <h4>Reconstruction Error</h4>
+            <p>Calculates MAE between input and reconstructed output</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1245,21 +1298,21 @@ elif selected == "Modelo":
         st.markdown("""
         <div class="info-box" style="text-align: center;">
             <h3 style="font-size: 2.5em; margin: 0.5rem 0;">4️⃣</h3>
-            <h4>Classificação</h4>
-            <p>Se erro > threshold: anomalia; caso contrário: normal</p>
+            <h4>Classification</h4>
+            <p>If error > threshold: anomaly; otherwise: normal</p>
         </div>
         """, unsafe_allow_html=True)
 
-# PÁGINA: TREINAMENTO
-elif selected == "Treinamento":
+# PAGE: TRAINING
+elif selected == "Training":
     show_header()
     
     metadata = load_metadata()
     
     if metadata:
-        st.markdown("### Histórico de Treinamento do Autoencoder")
+        st.markdown("### Autoencoder Training History")
         
-        # Métricas finais
+        # Final metrics
         col1, col2, col3, col4 = st.columns(4)
         
         history = metadata['training_history']
@@ -1271,7 +1324,7 @@ elif selected == "Treinamento":
         with col1:
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Épocas Treinadas</div>
+                    <div class="metric-label">Trained Epochs</div>
                     <div class="metric-value">{total_epochs}</div>
                 </div>
             """, unsafe_allow_html=True)
@@ -1279,7 +1332,7 @@ elif selected == "Treinamento":
         with col2:
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Loss Final (Train)</div>
+                    <div class="metric-label">Final Loss (Train)</div>
                     <div class="metric-value">{final_loss:.4f}</div>
                 </div>
             """, unsafe_allow_html=True)
@@ -1287,7 +1340,7 @@ elif selected == "Treinamento":
         with col3:
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Loss Final (Val)</div>
+                    <div class="metric-label">Final Loss (Val)</div>
                     <div class="metric-value">{final_val_loss:.4f}</div>
                 </div>
             """, unsafe_allow_html=True)
@@ -1303,7 +1356,7 @@ elif selected == "Treinamento":
         st.markdown("<br>", unsafe_allow_html=True)
         
         # Gráfico de evolução do loss
-        st.markdown("#### Evolução da Loss Durante o Treinamento")
+        st.markdown("#### Loss Evolution During Training")
         
         epochs = list(range(1, total_epochs + 1))
         
@@ -1326,7 +1379,7 @@ elif selected == "Treinamento":
         ))
         
         fig.update_layout(
-            xaxis_title="Época",
+            xaxis_title="Epoch",
             yaxis_title="Loss (MAE)",
             hovermode='x unified',
             height=500,
@@ -1353,14 +1406,14 @@ elif selected == "Treinamento":
         st.markdown("<hr>", unsafe_allow_html=True)
         
         # Performance final
-        st.markdown("#### Performance Final no Conjunto de Teste")
+        st.markdown("#### Final Performance on Test Set")
         
         perf = metadata['final_performance_on_test_set']
         
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            # Métricas detalhadas
+            # Detailed metrics
             st.markdown("""
             <div class="info-box">
                 <h4>Métricas de Classificação</h4>
@@ -1422,8 +1475,8 @@ elif selected == "Treinamento":
         
         st.markdown("<hr>", unsafe_allow_html=True)
         
-        # Informações sobre o treinamento
-        st.markdown("### Configuração do Treinamento")
+        # Training information
+        st.markdown("### Training Configuration")
         
         config_cols = st.columns(3)
         
@@ -1432,7 +1485,7 @@ elif selected == "Treinamento":
             <div class="info-box">
                 <h4>Dados de Treino</h4>
                 <ul style='line-height: 2;'>
-                    <li><b>Amostras:</b> 1170</li>
+                    <li><b>Samples:</b> 1170</li>
                     <li><b>Tipo:</b> Apenas normais</li>
                     <li><b>Validação:</b> 20% split</li>
                     <li><b>Escalonamento:</b> StandardScaler</li>
@@ -1458,7 +1511,7 @@ elif selected == "Treinamento":
             <div class="info-box">
                 <h4>Resultados</h4>
                 <ul style='line-height: 2;'>
-                    <li><b>Stopped at:</b> Época 53</li>
+                    <li><b>Stopped at:</b> Epoch 53</li>
                     <li><b>Best Loss:</b> 0.4055</li>
                     <li><b>Overfitting:</b> Baixo</li>
                     <li><b>Convergência:</b> Estável</li>
@@ -1467,27 +1520,27 @@ elif selected == "Treinamento":
             """, unsafe_allow_html=True)
     
     else:
-        st.error("Metadados de treinamento não encontrados.")
+        st.error("Training metadata not found.")
 
-# PÁGINA: TESTE
-elif selected == "Teste":
+# PAGE: TEST
+elif selected == "Test":
     show_header()
     
-    st.markdown("### Teste do Modelo")
+    st.markdown("### Model Test")
     
     model = load_model()
     metadata = load_metadata()
     
     if model and metadata:
-        # Seleção de threshold - Layout Compacto
+        # Threshold selection - Compact Layout
         col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
             threshold_option = st.radio(
-                "**Threshold de Detecção**",
+                "**Detection Threshold**",
                 options=["Balanced (0.45)", "Conservative (0.50)"],
                 horizontal=True,
-                help="Balanced: equilíbrio precision/recall. Conservative: menos falsos positivos."
+                help="Balanced: precision/recall balance. Conservative: fewer false positives."
             )
         
         threshold = 0.45 if "Balanced" in threshold_option else 0.50
@@ -1503,27 +1556,27 @@ elif selected == "Teste":
         with col3:
             st.markdown(f"""
                 <div class="metric-card" style="margin-top: 0;">
-                    <div class="metric-label">Tipo</div>
+                    <div class="metric-label">Type</div>
                     <div class="metric-value" style="font-size: 1rem;">{'BAL' if threshold == 0.45 else 'CON'}</div>
                 </div>
             """, unsafe_allow_html=True)
         
         st.markdown("<div style='margin: 1.5rem 0;'></div>", unsafe_allow_html=True)
         
-        # Tabs para Upload ou Dados de Amostra
-        test_tab1, test_tab2 = st.tabs(["Dados de Amostra", "Upload de CSV"])
+        # Tabs for Upload or Sample Data
+        test_tab1, test_tab2 = st.tabs(["Sample Data", "Upload CSV"])
         
         with test_tab1:
-            # Carregar dataset
+            # Load dataset
             df_demo = load_dataset()
             
             if df_demo is not None:
-                # Controles lado a lado
+                # Side-by-side controls
                 ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2, 2, 1])
                 
                 with ctrl_col1:
                     sample_size = st.slider(
-                        "Tamanho da amostra",
+                        "Sample size",
                         min_value=10,
                         max_value=min(100, len(df_demo)),
                         value=50,
@@ -1532,43 +1585,43 @@ elif selected == "Teste":
                 
                 with ctrl_col2:
                     sample_type = st.selectbox(
-                        "Tipo de dados",
-                        options=["Misto", "Apenas Normais", "Apenas Falhas"]
+                        "Data type",
+                        options=["Mixed", "Normal Only", "Failures Only"]
                     )
                 
                 with ctrl_col3:
                     st.markdown("<div style='margin-top: 1.75rem;'></div>", unsafe_allow_html=True)
-                    analyze_button = st.button("Analisar", type="primary", use_container_width=True, key="analyze_sample")
+                    analyze_button = st.button("Analyze", type="primary", use_container_width=True, key="analyze_sample")
                 
-                # Preparar amostra
-                if sample_type == "Apenas Normais":
+                # Prepare sample
+                if sample_type == "Normal Only":
                     df_sample = df_demo[df_demo['Pass/Fail'] == -1].sample(n=min(sample_size, (df_demo['Pass/Fail'] == -1).sum()), random_state=42)
-                elif sample_type == "Apenas Falhas":
+                elif sample_type == "Failures Only":
                     df_sample = df_demo[df_demo['Pass/Fail'] == 1].sample(n=min(sample_size, (df_demo['Pass/Fail'] == 1).sum()), random_state=42)
-                else:  # Misto
+                else:  # Mixed
                     df_sample = df_demo.sample(n=min(sample_size, len(df_demo)), random_state=42)
                 
-                # Info da amostra
-                st.caption(f"{len(df_sample)} registros • {sample_type}")
+                # Sample info
+                st.caption(f"{len(df_sample)} records • {sample_type}")
                 
-                # Preview compacto
-                with st.expander("Visualizar dados da amostra", expanded=False):
+                # Compact preview
+                with st.expander("View sample data", expanded=False):
                     st.dataframe(df_sample.head(10), use_container_width=True, height=250)
                 
                 st.markdown("<div style='margin: 1.5rem 0;'></div>", unsafe_allow_html=True)
                 
-                # Processar quando botão for clicado
+                # Process when button is clicked
                 if analyze_button:
-                    with st.spinner("Processando amostra através do autoencoder..."):
-                        # Preparar dados
+                    with st.spinner("Processing sample through autoencoder..."):
+                        # Prepare data
                         y_true = df_sample['Pass/Fail'].replace({-1: 0, 1: 1})
                         X_sample = df_sample.drop(columns=['Time', 'Pass/Fail'])
                         
-                        # Normalizar
+                        # Normalize
                         scaler = StandardScaler()
                         X_sample_scaled = scaler.fit_transform(X_sample)
                         
-                        # Predições
+                        # Predictions
                         reconstructions = model.predict(X_sample_scaled, verbose=0)
                         reconstruction_errors = tf.keras.losses.mae(reconstructions, X_sample_scaled).numpy()
                         predictions = (reconstruction_errors > threshold).astype(int)
@@ -1577,7 +1630,7 @@ elif selected == "Teste":
                     
                     # Container de Resultados - Premium
                     with st.container():
-                        st.markdown("#### Resultados")
+                        st.markdown("#### Results")
                         
                         # Estatísticas
                         normal_count = (predictions == 0).sum()
@@ -1590,7 +1643,7 @@ elif selected == "Teste":
                         with col1:
                             st.markdown(f"""
                                 <div class="metric-card">
-                                    <div class="metric-label">Amostras</div>
+                                    <div class="metric-label">Samples</div>
                                     <div class="metric-value">{len(predictions)}</div>
                                 </div>
                             """, unsafe_allow_html=True)
@@ -1606,7 +1659,7 @@ elif selected == "Teste":
                         with col3:
                             st.markdown(f"""
                                 <div class="metric-card">
-                                    <div class="metric-label">Anomalias</div>
+                                    <div class="metric-label">Anomalies</div>
                                     <div class="metric-value">{anomaly_count}</div>
                                 </div>
                             """, unsafe_allow_html=True)
@@ -1614,16 +1667,16 @@ elif selected == "Teste":
                         with col4:
                             st.markdown(f"""
                                 <div class="metric-card">
-                                    <div class="metric-label">Taxa</div>
+                                    <div class="metric-label">Rate</div>
                                     <div class="metric-value">{anomaly_rate:.1f}%</div>
                                 </div>
                             """, unsafe_allow_html=True)
                     
                     st.markdown("<div style='margin: 1.5rem 0;'></div>", unsafe_allow_html=True)
                     
-                    # Container de Visualizações
+                    # Visualizations Container
                     with st.container():
-                        st.markdown("#### Análise Visual")
+                        st.markdown("#### Visual Analysis")
                         col1, col2 = st.columns([1.3, 1])
                         
                         with col1:
@@ -1638,7 +1691,7 @@ elif selected == "Teste":
                             
                             fig.add_trace(go.Histogram(
                                 x=reconstruction_errors[predictions == 1],
-                                name='Anomalia',
+                                name='Anomaly',
                                 marker=dict(color=PLOT_COLORS['primary'], opacity=0.7),
                                 nbinsx=30
                             ))
@@ -1658,8 +1711,8 @@ elif selected == "Teste":
                                 paper_bgcolor=PLOT_COLORS['bg'],
                                 plot_bgcolor=PLOT_COLORS['bg'],
                                 font=dict(family=PLOT_COLORS['font'], size=PLOT_COLORS['font_size'], color=PLOT_COLORS['text']),
-                                xaxis_title="Erro de Reconstrução",
-                                yaxis_title="Contagem",
+                                xaxis_title="Reconstruction Error",
+                                yaxis_title="Count",
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                                 margin=dict(t=30, b=50, l=50, r=20)
                             )
@@ -1671,7 +1724,7 @@ elif selected == "Teste":
                         
                         with col2:
                             fig = go.Figure(data=[go.Pie(
-                                labels=['Normal', 'Anomalia'],
+                                labels=['Normal', 'Anomaly'],
                                 values=[normal_count, anomaly_count],
                                 hole=0.5,
                                 marker=dict(colors=[PLOT_COLORS['success'], PLOT_COLORS['primary']]),
@@ -1690,17 +1743,17 @@ elif selected == "Teste":
                             
                             st.plotly_chart(fig, use_container_width=True)
                     
-                    # Container de Performance
+                    # Performance Container
                     st.markdown("<div style='margin: 2rem 0 1.5rem 0;'></div>", unsafe_allow_html=True)
                     
                     with st.container():
-                        st.markdown("#### Performance do Modelo")
+                        st.markdown("#### Model Performance")
                         
                         from sklearn.metrics import classification_report, confusion_matrix
                         
                         report = classification_report(y_true, predictions, output_dict=True)
                         
-                        # Métricas em grid
+                        # Metrics in grid
                         col1, col2, col3, col4 = st.columns(4)
                         
                         with col1:
@@ -1744,8 +1797,8 @@ elif selected == "Teste":
                         with col_cm2:
                             fig = go.Figure(data=go.Heatmap(
                                 z=cm,
-                                x=['Predito: Normal', 'Predito: Anomalia'],
-                                y=['Real: Normal', 'Real: Anomalia'],
+                                x=['Predicted: Normal', 'Predicted: Anomalia'],
+                                y=['Actual: Normal', 'Actual: Anomalia'],
                                 colorscale=[[0, '#0e1117'], [1, PLOT_COLORS['primary']]],
                                 text=cm,
                                 texttemplate='%{text}',
@@ -1763,12 +1816,12 @@ elif selected == "Teste":
                             
                             st.plotly_chart(fig, use_container_width=True)
             else:
-                st.error("Dataset não encontrado para demonstração.")
+                st.error("Dataset not found for demonstration.")
         
         with test_tab2:
             # Upload Section - Premium
             uploaded_file = st.file_uploader(
-                "Selecione um arquivo CSV",
+                "Select a CSV file",
                 type=['csv'],
                 help="O arquivo deve conter 558 colunas de features",
                 label_visibility="collapsed"
@@ -1776,29 +1829,29 @@ elif selected == "Teste":
             
             if uploaded_file:
                 try:
-                    # Carregar dados
+                    # Load data
                     test_data = pd.read_csv(uploaded_file)
                     
-                    st.caption(f"✓ {len(test_data)} registros carregados")
+                    st.caption(f"✓ {len(test_data)} records loaded")
                     
-                    # Preview e botão lado a lado
+                    # Preview and button side-by-side
                     col_preview, col_btn = st.columns([3, 1])
                     
                     with col_preview:
-                        with st.expander("Visualizar dados do arquivo", expanded=False):
+                        with st.expander("View file data", expanded=False):
                             st.dataframe(test_data.head(10), use_container_width=True, height=250)
                     
                     with col_btn:
                         st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
-                        analyze_upload_button = st.button("Analisar", type="primary", use_container_width=True, key="analyze_upload")
+                        analyze_upload_button = st.button("Analyze", type="primary", use_container_width=True, key="analyze_upload")
                     
                     st.markdown("<div style='margin: 1.5rem 0;'></div>", unsafe_allow_html=True)
                     
-                    # Botão para processar
+                    # Button to process
                     if analyze_upload_button:
-                        with st.spinner("Processando dados através do autoencoder..."):
-                            # Preparar dados
-                            # Remover colunas Time e Pass/Fail se existirem
+                        with st.spinner("Processing data through autoencoder..."):
+                            # Prepare data
+                            # Remove Time and Pass/Fail columns if they exist
                             cols_to_drop = []
                             if 'Time' in test_data.columns:
                                 cols_to_drop.append('Time')
@@ -1811,14 +1864,14 @@ elif selected == "Teste":
                             
                             X_test = test_data.drop(columns=cols_to_drop) if cols_to_drop else test_data
                             
-                            # Normalizar dados
+                            # Normalize data
                             scaler = StandardScaler()
                             X_test_scaled = scaler.fit_transform(X_test)
                             
-                            # Fazer predições
+                            # Make predictions
                             reconstructions = model.predict(X_test_scaled, verbose=0)
                             
-                            # Calcular erro de reconstrução
+                            # Calculate reconstruction error
                             reconstruction_errors = tf.keras.losses.mae(reconstructions, X_test_scaled).numpy()
                             
                             # Classificar
@@ -1828,7 +1881,7 @@ elif selected == "Teste":
                         
                         # Container de Resultados - Premium
                         with st.container():
-                            st.markdown("#### Resultados")
+                            st.markdown("#### Results")
                             
                             # Estatísticas
                             normal_count = (predictions == 0).sum()
@@ -1841,7 +1894,7 @@ elif selected == "Teste":
                             with col1:
                                 st.markdown(f"""
                                     <div class="metric-card">
-                                        <div class="metric-label">Amostras</div>
+                                        <div class="metric-label">Samples</div>
                                         <div class="metric-value">{len(predictions)}</div>
                                     </div>
                                 """, unsafe_allow_html=True)
@@ -1857,7 +1910,7 @@ elif selected == "Teste":
                             with col3:
                                 st.markdown(f"""
                                     <div class="metric-card">
-                                        <div class="metric-label">Anomalias</div>
+                                        <div class="metric-label">Anomalies</div>
                                         <div class="metric-value">{anomaly_count}</div>
                                     </div>
                                 """, unsafe_allow_html=True)
@@ -1865,16 +1918,16 @@ elif selected == "Teste":
                             with col4:
                                 st.markdown(f"""
                                     <div class="metric-card">
-                                        <div class="metric-label">Taxa</div>
+                                        <div class="metric-label">Rate</div>
                                         <div class="metric-value">{anomaly_rate:.1f}%</div>
                                     </div>
                                 """, unsafe_allow_html=True)
                         
                         st.markdown("<div style='margin: 1.5rem 0;'></div>", unsafe_allow_html=True)
                         
-                        # Container de Visualizações
+                        # Visualizations Container
                         with st.container():
-                            st.markdown("#### Análise Visual")
+                            st.markdown("#### Visual Analysis")
                             col1, col2 = st.columns([1.3, 1])
                             
                             with col1:
@@ -1889,7 +1942,7 @@ elif selected == "Teste":
                                 
                                 fig.add_trace(go.Histogram(
                                     x=reconstruction_errors[predictions == 1],
-                                    name='Anomalia',
+                                    name='Anomaly',
                                     marker=dict(color=PLOT_COLORS['primary'], opacity=0.7),
                                     nbinsx=30
                                 ))
@@ -1910,8 +1963,8 @@ elif selected == "Teste":
                                     paper_bgcolor=PLOT_COLORS['bg'],
                                     plot_bgcolor=PLOT_COLORS['bg'],
                                     font=dict(family=PLOT_COLORS['font'], size=PLOT_COLORS['font_size'], color=PLOT_COLORS['text']),
-                                    xaxis_title="Erro de Reconstrução",
-                                    yaxis_title="Contagem",
+                                    xaxis_title="Reconstruction Error",
+                                    yaxis_title="Count",
                                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                                     margin=dict(t=30, b=50, l=50, r=20)
                                 )
@@ -1923,7 +1976,7 @@ elif selected == "Teste":
                             
                             with col2:
                                 fig = go.Figure(data=[go.Pie(
-                                    labels=['Normal', 'Anomalia'],
+                                    labels=['Normal', 'Anomaly'],
                                     values=[normal_count, anomaly_count],
                                     hole=0.5,
                                     marker=dict(colors=[PLOT_COLORS['success'], PLOT_COLORS['primary']]),
@@ -1942,19 +1995,19 @@ elif selected == "Teste":
                                 
                                 st.plotly_chart(fig, use_container_width=True)
                         
-                        # Se tiver labels verdadeiros, mostrar métricas
+                        # If has true labels, show metrics
                         if has_labels:
                             st.markdown("<div style='margin: 2rem 0 1.5rem 0;'></div>", unsafe_allow_html=True)
                             
                             with st.container():
-                                st.markdown("#### Performance do Modelo")
+                                st.markdown("#### Model Performance")
                                 
                                 from sklearn.metrics import classification_report, confusion_matrix
                                 
                                 # Relatório de classificação
                                 report = classification_report(y_true, predictions, output_dict=True)
                                 
-                                # Métricas em grid
+                                # Metrics in grid
                                 col1, col2, col3, col4 = st.columns(4)
                                 
                                 with col1:
@@ -1998,8 +2051,8 @@ elif selected == "Teste":
                             with col_cm2:
                                 fig = go.Figure(data=go.Heatmap(
                                     z=cm,
-                                    x=['Predito: Normal', 'Predito: Anomalia'],
-                                    y=['Real: Normal', 'Real: Anomalia'],
+                                    x=['Predicted: Normal', 'Predicted: Anomalia'],
+                                    y=['Actual: Normal', 'Actual: Anomalia'],
                                     colorscale=[[0, '#0e1117'], [1, PLOT_COLORS['primary']]],
                                     text=cm,
                                     texttemplate='%{text}',
@@ -2019,68 +2072,68 @@ elif selected == "Teste":
                         
                         st.markdown("<div style='margin: 2rem 0 1.5rem 0;'></div>", unsafe_allow_html=True)
                         
-                        # Tabela de resultados
+                        # Results table
                         with st.container():
-                            st.markdown("#### Detalhes")
+                            st.markdown("#### Details")
                             
                             results_df = pd.DataFrame({
-                                'Índice': range(len(predictions)),
-                                'Erro de Reconstrução': reconstruction_errors,
-                                'Classificação': ['Normal' if p == 0 else 'Anomalia' for p in predictions],
+                                'Index': range(len(predictions)),
+                                'Reconstruction Error': reconstruction_errors,
+                                'Classification': ['Normal' if p == 0 else 'Anomaly' for p in predictions],
                                 'Status': ['✅' if p == 0 else '⚠️' for p in predictions]
                             })
                             
                             if has_labels:
-                                results_df['Label Real'] = ['Normal' if y == 0 else 'Anomalia' for y in y_true]
-                                results_df['Correto'] = ['✅' if p == y else '❌' for p, y in zip(predictions, y_true)]
+                                results_df['Actual Label'] = ['Normal' if y == 0 else 'Anomaly' for y in y_true]
+                                results_df['Correct'] = ['✅' if p == y else '❌' for p, y in zip(predictions, y_true)]
                             
-                            # Filtros
+                            # Filters
                             show_option = st.radio(
-                                "Filtrar:",
-                                options=["Todos", "Apenas Anomalias", "Apenas Normais"],
+                                "Filter:",
+                                options=["All", "Anomalies Only", "Normal Only"],
                                 horizontal=True
                             )
                             
-                            if show_option == "Apenas Anomalias":
-                                results_df = results_df[results_df['Classificação'] == 'Anomalia']
-                            elif show_option == "Apenas Normais":
-                                results_df = results_df[results_df['Classificação'] == 'Normal']
+                            if show_option == "Anomalies Only":
+                                results_df = results_df[results_df['Classification'] == 'Anomaly']
+                            elif show_option == "Normal Only":
+                                results_df = results_df[results_df['Classification'] == 'Normal']
                             
                             st.dataframe(results_df, use_container_width=True, height=350)
                         
-                        # Download dos resultados
+                        # Download results
                         csv = results_df.to_csv(index=False)
                         st.download_button(
-                            label="Download Resultados (CSV)",
+                            label="Download Results (CSV)",
                             data=csv,
                             file_name="secom_predictions.csv",
                             mime="text/csv"
                         )
                     
                 except Exception as e:
-                    st.error(f"❌ Erro ao processar arquivo: {str(e)}")
-                    st.info("Certifique-se de que o arquivo CSV está no formato correto com 558 features.")
+                    st.error(f"❌ Error processing file: {str(e)}")
+                    st.info("Make sure the CSV file is in the correct format with 558 features.")
             
             else:
-                # Instruções quando não há arquivo
+                # Instructions when no file
                 st.markdown("""
                 <div class="info-box">
-                    <h4>Instruções</h4>
+                    <h4>Instructions</h4>
                     <ol style='line-height: 1.8; font-size: 0.875rem;'>
-                        <li>Prepare um arquivo CSV com dados de sensores SECOM</li>
-                        <li>O arquivo deve conter 558 colunas de features numéricas</li>
-                        <li>Opcionalmente, inclua colunas 'Time' e 'Pass/Fail' para validação</li>
-                        <li>Selecione o threshold desejado antes da análise</li>
+                        <li>Prepare a CSV file with SECOM sensor data</li>
+                        <li>The file must contain 558 numeric feature columns</li>
+                        <li>Optionally, include 'Time' and 'Pass/Fail' columns for validation</li>
+                        <li>Select the desired threshold before analysis</li>
                     </ol>
                     <p style='margin-top: 1rem; font-size: 0.8125rem; opacity: 0.8;'>
-                    <b>Nota:</b> Use o arquivo <code>data/secom_cleaned_dataset.csv</code> 
-                    do projeto para testar o sistema.
+                    <b>Note:</b> Use the <code>data/secom_cleaned_dataset.csv</code> 
+                    file from the project to test the system.
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
     
     else:
-        st.error("❌ Modelo não encontrado. Verifique se o arquivo 'models/secom_autoencoder_model.keras' existe.")
+        st.error("❌ Model not found. Check if the file 'models/secom_autoencoder_model.keras' exists.")
 
 # Footer
 st.markdown("<br><br>", unsafe_allow_html=True)
