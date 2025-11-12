@@ -7,7 +7,7 @@ from typing import List, Optional
 import numpy as np
 import tensorflow as tf
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field, model_validator
 from sklearn.preprocessing import StandardScaler
 
 PROJECT_ROOT = Path(__file__).parent
@@ -31,9 +31,9 @@ class InferenceRequest(BaseModel):
         description="Optional override for the anomaly detection threshold. Defaults to 0.45 when omitted.",
     )
 
-    @root_validator
-    def _validate_instances(cls, values):
-        instances = values.get("instances", [])
+    @model_validator(mode="after")
+    def _validate_instances(self):
+        instances = self.instances
         if not instances:
             raise ValueError("`instances` must contain at least one sample.")
 
@@ -42,7 +42,7 @@ class InferenceRequest(BaseModel):
                 raise ValueError(
                     f"Sample at index {idx} has {len(sample)} features but {NUM_FEATURES} features are required."
                 )
-        return values
+        return self
 
 
 class SamplePrediction(BaseModel):
