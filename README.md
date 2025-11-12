@@ -16,7 +16,7 @@ Advanced anomaly detection service for semiconductor manufacturing, powered by a
 - 🧠 **Autoencoder** architecture: 558 → 128 → 64 → 32 (bottleneck) → 64 → 128 → 558
 - ⚙️ **FastAPI** service with `/predict`, `/health`, and metadata endpoints
 - 🎯 **Threshold control**: default balanced threshold 0.45, override per request
-- 🗂️ **Bundled assets**: cleaned dataset, trained model, and training metadata
+- 🗂️ **Bundled assets**: pretrained autoencoder, training metadata, and scaler statistics
 - 🚀 **Hugging Face Space ready**: Dockerfile + `requirements.txt`
 
 ### Model Metrics
@@ -55,7 +55,7 @@ docker run -p 7860:7860 secom-api
    cd <space_name>
    git lfs install --system
    ```
-3. Copy the project files into the Space working tree. The `.gitattributes` in this repo already tracks `models/*.keras` and `data/*.csv` with LFS.
+3. Copy the project files into the Space working tree. The `.gitattributes` in this repo already tracks model binaries with LFS.
 4. Commit and push (Hugging Face rejects commits with blobs >50 MB that are not in LFS):
    ```bash
    git add .
@@ -112,22 +112,21 @@ secom_failure_prediction/
 ├── requirements.txt                 # Python dependencies
 ├── Dockerfile                       # Hugging Face Space compatible image
 ├── README.md                        # Project documentation
-├── data/
-│   └── secom_cleaned_dataset.csv    # Cleaned dataset (1567 records, 558 features)
 ├── models/
 │   └── secom_autoencoder_model.keras # Pretrained autoencoder
 └── training/
-    └── secom_autoencoder_metadata.json # Training history and metrics
+    ├── secom_autoencoder_metadata.json # Training history and metrics
+    └── scaler_params.json              # StandardScaler parameters for inference
 ```
 
 ## 📊 SECOM Dataset
 
-- **Total Records**: 1,567
+- **Total Records (original dataset)**: 1,567
 - **Features**: 558 (after cleaning and removing high-missing-value columns)
 - **Classes**: Normal (-1) vs Failure (1)
 - **Class Imbalance**: ≈93% Normal vs 7% Failures
 
-The scaler used by the API is fitted on the normal data subset (`Pass/Fail = -1`), mirroring the training regime.
+The repository ships only derived assets required for inference. `training/scaler_params.json` stores the StandardScaler statistics computed on the normal subset (`Pass/Fail = -1`), preserving the training regime without bundling the raw CSV.
 
 ## 🎓 Methodology
 
