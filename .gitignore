@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# Secrets / env
+.env
+.env.*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.log
+temp_upload.jpg
+temp_*.csv
+
+# Build / packaging
+dist/
+build/
+*.egg-info/
+
+# Reference app (não fazer commit)
+analise_canina_yolo/
+

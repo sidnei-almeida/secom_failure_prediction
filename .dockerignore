@@ -1,0 +1,34 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Python cache and environments
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.venv/
+venv/
+env/
+ENV/
+
+# Editor and OS clutter
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and temp data
+*.log
+tmp/
+temp_*.csv
+
+# Documentation & notebooks (already removed locally but guard against re-adding)
+notebooks/
+*.ipynb
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
