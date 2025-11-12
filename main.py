@@ -1,164 +1,173 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field, model_validator
-from sklearn.preprocessing import StandardScaler
+from pydantic import BaseModel, Field
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+
+from preprocess_pipeline import LSTMPreprocessor
 
 PROJECT_ROOT = Path(__file__).parent
-MODEL_PATH = PROJECT_ROOT / "models" / "secom_autoencoder_model.keras"
-METADATA_PATH = PROJECT_ROOT / "training" / "secom_autoencoder_metadata.json"
-SCALER_PATH = PROJECT_ROOT / "training" / "scaler_params.json"
+MODEL_PATH = PROJECT_ROOT / "models" / "lstm_model.keras"
+TRAIN_DATA_PATH = PROJECT_ROOT / "models" / "processed_uci_secom.csv"
+DEFAULT_THRESHOLD = 0.7325
+FALLBACK_METRICS = {
+    "accuracy": 0.9692,
+    "precision": 0.7311,
+    "recall": 0.8447,
+    "f1": 0.7838,
+}
 
-DEFAULT_THRESHOLD = 0.45
-NUM_FEATURES = 558
 
-
-class InferenceRequest(BaseModel):
-    """
-    Input payload for the anomaly detection endpoint.
-    """
-
-    instances: List[List[float]] = Field(..., description="Array of samples, each with 558 sensor values.")
+class PredictRequest(BaseModel):
+    instances: List[List[float]] = Field(
+        ..., description="Ordered observations (n_samples x 590 features prior to preprocessing)."
+    )
+    timestamps: Optional[List[str]] = Field(
+        None,
+        description="Optional ISO timestamps aligned with the provided observations.",
+    )
     threshold: Optional[float] = Field(
         None,
-        ge=0,
-        description="Optional override for the anomaly detection threshold. Defaults to 0.45 when omitted.",
+        ge=0.0,
+        le=1.0,
+        description="Classification threshold applied to the predicted probabilities. Defaults to 0.7325.",
     )
 
-    @model_validator(mode="after")
-    def _validate_instances(self):
-        instances = self.instances
-        if not instances:
-            raise ValueError("`instances` must contain at least one sample.")
 
-        for idx, sample in enumerate(instances):
-            if len(sample) != NUM_FEATURES:
-                raise ValueError(
-                    f"Sample at index {idx} has {len(sample)} features but {NUM_FEATURES} features are required."
-                )
-        return self
-
-
-class SamplePrediction(BaseModel):
-    reconstruction_error: float = Field(..., description="Mean Absolute Error between original and reconstruction.")
-    is_anomaly: bool = Field(..., description="True when reconstruction error is greater than the selected threshold.")
+class SequencePrediction(BaseModel):
+    window_end_index: int = Field(..., description="Index of the last observation used in the sequence window.")
+    timestamp: Optional[str] = Field(
+        None, description="Timestamp of the last observation used in the sequence window (if provided)."
+    )
+    probability: float = Field(..., description="Predicted probability of failure for the next step.")
+    is_anomaly: bool = Field(..., description="Binary classification based on the chosen threshold.")
 
 
 class InferenceResponse(BaseModel):
     threshold: float
-    predictions: List[SamplePrediction]
+    feature_names: List[str]
+    predictions: List[SequencePrediction]
 
 
-def _load_metadata() -> dict:
-    if not METADATA_PATH.exists():
-        raise FileNotFoundError(f"Metadata file not found at {METADATA_PATH}")
-    with METADATA_PATH.open("r", encoding="utf-8") as fp:
-        return json.load(fp)
+def evaluate_model(
+    model: tf.keras.Model,
+    preprocessor: LSTMPreprocessor,
+    dataset_path: Path,
+    threshold: float = DEFAULT_THRESHOLD,
+) -> dict:
+    data = pd.read_csv(dataset_path)
 
+    timestamps = pd.to_datetime(data["Time"]) if "Time" in data.columns else None
+    labels = data["Pass/Fail"] if "Pass/Fail" in data.columns else None
 
-def _load_scaler() -> StandardScaler:
-    if not SCALER_PATH.exists():
-        raise FileNotFoundError(f"Scaler file not found at {SCALER_PATH}")
+    feature_df = data.drop(columns=[col for col in ["Time", "Pass/Fail"] if col in data.columns])
+    sequences, positions, sequence_timestamps = preprocessor.transform(
+        feature_df.values.tolist(), timestamps=timestamps
+    )
 
-    with SCALER_PATH.open("r", encoding="utf-8") as fp:
-        params = json.load(fp)
+    probabilities = model.predict(sequences, verbose=0).flatten()
 
-    required_keys = {"mean", "scale", "var", "n_features_in"}
-    if not required_keys.issubset(params):
-        missing = required_keys - params.keys()
-        raise ValueError(f"Scaler parameters file missing keys: {', '.join(sorted(missing))}")
+    if labels is None:
+        return {}
 
-    scaler = StandardScaler()
-    scaler.mean_ = np.asarray(params["mean"], dtype=np.float32)
-    scaler.scale_ = np.asarray(params["scale"], dtype=np.float32)
-    scaler.var_ = np.asarray(params["var"], dtype=np.float32)
-    scaler.n_features_in_ = int(params["n_features_in"])
-    scaler.n_samples_seen_ = params.get("n_samples_seen", 0)
-    return scaler
+    if timestamps is not None:
+        label_series = pd.Series(labels.values, index=pd.to_datetime(data["Time"])).sort_index()
+    else:
+        label_series = pd.Series(labels.values, index=np.arange(len(labels)))
 
+    y_true = []
+    for position, ts in zip(positions, sequence_timestamps):
+        if ts is not None:
+            y_true.append(label_series.loc[ts])
+        else:
+            y_true.append(label_series.iloc[position])
 
-def _load_model() -> tf.keras.Model:
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"Model file not found at {MODEL_PATH}")
-    return tf.keras.models.load_model(MODEL_PATH)
+    y_true = np.where(np.array(y_true) == -1, 0, 1)
+    y_pred = (probabilities >= threshold).astype(int)
+
+    if len(np.unique(y_true)) < 2:
+        return {"accuracy": float(accuracy_score(y_true, y_pred))}
+
+    return {
+        "accuracy": float(accuracy_score(y_true, y_pred)),
+        "precision": float(precision_score(y_true, y_pred, zero_division=0)),
+        "recall": float(recall_score(y_true, y_pred, zero_division=0)),
+        "f1": float(f1_score(y_true, y_pred, zero_division=0)),
+    }
 
 
 def make_app() -> FastAPI:
-    metadata = _load_metadata()
-    model = _load_model()
-    scaler = _load_scaler()
-
-    global NUM_FEATURES
-    NUM_FEATURES = scaler.n_features_in_
+    preprocessor = LSTMPreprocessor.fit_from_csv(TRAIN_DATA_PATH, timesteps=10)
+    model = tf.keras.models.load_model(MODEL_PATH)
+    evaluation_metrics = evaluate_model(model, preprocessor, TRAIN_DATA_PATH, threshold=DEFAULT_THRESHOLD)
+    metrics = evaluation_metrics or FALLBACK_METRICS
 
     app = FastAPI(
         title="SECOM Failure Prediction API",
-        description="Neural network autoencoder for anomaly detection in semiconductor manufacturing.",
-        version="1.0.0",
+        description="LSTM-based anomaly detection for semiconductor manufacturing sequences.",
+        version="2.0.0",
     )
 
     @app.get("/", summary="Service metadata")
     def root():
-        performance = metadata.get("final_performance_on_test_set", {})
         return {
-            "project": metadata.get("project_name", "SECOM Failure Prediction"),
-            "model_type": metadata.get("model_type", "Autoencoder"),
-            "default_threshold": metadata.get("final_anomaly_threshold", DEFAULT_THRESHOLD),
-            "metrics": {
-                "precision_anomaly": performance.get("precision_for_anomaly"),
-                "recall_anomaly": performance.get("recall_for_anomaly"),
-                "f1_anomaly": performance.get("f1_score_for_anomaly"),
-                "accuracy": performance.get("accuracy"),
-            },
-            "features": NUM_FEATURES,
+            "project": "SECOM Failure Prediction",
+            "model_type": "LSTM",
+            "timesteps": preprocessor.timesteps,
+            "base_feature_count": preprocessor.base_feature_count,
+            "final_feature_count": preprocessor.final_feature_count,
+            "feature_names": preprocessor.final_feature_names,
+            "default_threshold": DEFAULT_THRESHOLD,
+            "metrics": metrics,
         }
 
     @app.get("/health", summary="Health check")
     def health():
         return {"status": "ok"}
 
-    @app.post("/predict", response_model=InferenceResponse, summary="Detect anomalies")
-    def predict(request: InferenceRequest):
-        threshold = request.threshold if request.threshold is not None else metadata.get(
-            "final_anomaly_threshold", DEFAULT_THRESHOLD
-        )
+    @app.post("/predict", response_model=InferenceResponse, summary="Predict failures with LSTM model")
+    def predict(request: PredictRequest):
+        if not request.instances:
+            raise HTTPException(status_code=400, detail="`instances` must contain at least one observation.")
+
+        threshold = request.threshold if request.threshold is not None else DEFAULT_THRESHOLD
 
         try:
-            data = np.asarray(request.instances, dtype=np.float32)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid numeric payload.") from exc
-
-        if data.ndim != 2 or data.shape[1] != NUM_FEATURES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Each sample must contain {NUM_FEATURES} features. Received shape {data.shape}.",
+            sequences, positions, timestamps = preprocessor.transform(
+                request.instances, timestamps=request.timestamps
             )
-
-        try:
-            scaled = scaler.transform(data)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        reconstructions = model.predict(scaled, verbose=0)
-        reconstruction_errors = np.mean(np.abs(reconstructions - scaled), axis=1)
-        anomalies = reconstruction_errors > threshold
+        probabilities = model.predict(sequences, verbose=0).flatten()
 
-        predictions = [
-            SamplePrediction(reconstruction_error=float(err), is_anomaly=bool(flag))
-            for err, flag in zip(reconstruction_errors, anomalies)
-        ]
+        predictions = []
+        for probability, position, timestamp in zip(probabilities, positions, timestamps):
+            predictions.append(
+                SequencePrediction(
+                    window_end_index=position,
+                    timestamp=timestamp.isoformat() if timestamp is not None else None,
+                    probability=float(probability),
+                    is_anomaly=bool(probability >= threshold),
+                )
+            )
 
-        return InferenceResponse(threshold=float(threshold), predictions=predictions)
+        return InferenceResponse(
+            threshold=float(threshold),
+            feature_names=preprocessor.final_feature_names,
+            predictions=predictions,
+        )
 
     return app
 
 
 app = make_app()
+
 
 

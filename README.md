@@ -10,7 +10,7 @@ license: mit
 
 # SECOM Failure Prediction - Inference API
 
-Advanced anomaly detection service for semiconductor manufacturing, powered by a Neural Network Autoencoder and exposed through a FastAPI HTTP interface.
+Production-ready anomaly detection service for semiconductor manufacturing, powered by an LSTM sequence classifier and exposed through a FastAPI HTTP interface.
 
 ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-2.15+-orange.svg)
@@ -19,22 +19,22 @@ Advanced anomaly detection service for semiconductor manufacturing, powered by a
 
 ## 📋 About the Project
 
-**SECOM Failure Prediction** identifies failures in semiconductor manufacturing processes through anomaly detection. A pretrained **Neural Network Autoencoder** learns normal operating patterns (558 sensor features) and flags deviations using reconstruction error.
+**SECOM Failure Prediction** identifies failures in semiconductor manufacturing processes through anomaly detection. A pretrained **LSTM classifier** analyses rolling windows of SECOM sensor readings (10 timesteps × 590 features) and estimates the probability of a failure at the next step.
 
 ### Key Features
 
-- 🧠 **Autoencoder** architecture: 558 → 128 → 64 → 32 (bottleneck) → 64 → 128 → 558
-- ⚙️ **FastAPI** service with `/predict`, `/health`, and metadata endpoints
-- 🎯 **Threshold control**: default balanced threshold 0.45, override per request
-- 🗂️ **Bundled assets**: pretrained autoencoder, training metadata, and scaler statistics
-- 🚀 **Hugging Face Space ready**: Dockerfile + `requirements.txt`
+- 🧠 **Sequence model**: single-layer LSTM (50 hidden units) trained on timesteps of SECOM telemetry.
+- 🧪 **Reproducible preprocessing**: Python pipeline mirrors training (gap filling, MinMax scaling, variance + correlation filtering, sliding windows).
+- 🎯 **Default classification threshold**: 0.7325 (F1-optimal balance of precision and recall), with request-level overrides.
+- 📊 **Rich metadata**: `/` endpoint reports feature set, timesteps, and evaluation metrics.
+- 🚀 **Hugging Face Space ready**: Dockerfile + `requirements.txt`, Git LFS tracking for large artifacts.
 
-### Model Metrics
+### Model Metrics (threshold = 0.7325)
 
-- **Recall (Anomalies)**: 35.6%
-- **Precision (Anomalies)**: 44.6%
-- **F1-Score**: 0.396
-- **Overall Accuracy**: 71.5%
+- **Accuracy**: 96.92%
+- **Precision**: 73.11%
+- **Recall**: 84.47%
+- **F1-Score**: 78.38%
 
 ## 🚀 Run Locally
 
@@ -85,31 +85,45 @@ Returns project metadata, model type, default threshold, and evaluation metrics.
 Simple health probe used by deployment platforms.
 
 ### `POST /predict`
-Detect anomalies in one or more SECOM samples.
+Detect anomalies from sequential SECOM samples.
 
 **Request body**
 ```json
 {
   "instances": [
-    [0.12, -0.53, 0.88, 1.07],
-    [0.02, 0.11, -0.42, -0.34]
+    [0.12, -0.53, 0.88, "...", 0.34],
+    [0.11, -0.51, 0.83, "...", 0.31],
+    "...",
+    [0.09, -0.47, 0.80, "...", 0.29]
   ],
-  "threshold": 0.45
+  "threshold": 0.7325
 }
 ```
 
-- `instances`: array of samples, each with 558 numeric sensor readings in the same order as the cleaned dataset.
-- `threshold` (optional): override detection threshold; defaults to 0.45.
+- `instances`: chronologically ordered observations. Each observation must contain **590** sensor features and you must supply at least **10** rows to generate the first prediction window.
+- `threshold` (optional): override detection threshold; defaults to **0.7325**.
+- `timestamps` (optional): ISO datetime strings aligned with each observation.
 
-> ⚠️ The example above shows only four values per sample for brevity. Provide all **558** features when calling the API.
+> ⚠️ Arrays are truncated above for readability. Ensure every observation carries the full feature set.
 
 **Response**
 ```json
 {
-  "threshold": 0.45,
+  "threshold": 0.7325,
+  "feature_names": ["0", "1", "...", "589"],
   "predictions": [
-    {"reconstruction_error": 0.38, "is_anomaly": false},
-    {"reconstruction_error": 0.57, "is_anomaly": true}
+    {
+      "window_end_index": 9,
+      "timestamp": "2008-07-19T12:32:00",
+      "probability": 0.84,
+      "is_anomaly": true
+    },
+    {
+      "window_end_index": 10,
+      "timestamp": "2008-07-19T12:33:00",
+      "probability": 0.21,
+      "is_anomaly": false
+    }
   ]
 }
 ```
@@ -123,16 +137,17 @@ secom_failure_prediction/
 ├── Dockerfile                       # Hugging Face Space compatible image
 ├── README.md                        # Project documentation
 ├── models/
-│   └── secom_autoencoder_model.keras # Pretrained autoencoder
+│   ├── lstm_model.keras             # Trained LSTM weights (Git LFS)
+│   └── processed_uci_secom.csv      # Processed dataset used to fit preprocessing pipeline
+├── preprocess_pipeline.py            # Reusable preprocessing class for LSTM input
 └── training/
-    ├── secom_autoencoder_metadata.json # Training history and metrics
-    └── scaler_params.json              # StandardScaler parameters for inference
+    └── secom_autoencoder_metadata.json (legacy reference only)
 ```
 
 ## 📊 SECOM Dataset
 
 - **Total Records (original dataset)**: 1,567
-- **Features**: 558 (after cleaning and removing high-missing-value columns)
+- **Features**: 590 (after cleaning, variance filtering, and correlation pruning)
 - **Classes**: Normal (-1) vs Failure (1)
 - **Class Imbalance**: ≈93% Normal vs 7% Failures
 
@@ -140,15 +155,15 @@ The repository ships only derived assets required for inference. `training/scale
 
 ## 🎓 Methodology
 
-1. **Preprocessing**: Cleaned features, removed high-missing-value columns, median imputation.
-2. **Architecture**: Symmetric autoencoder with 32-dimensional bottleneck.
-3. **Training**: Trained exclusively on normal samples (1,170 records).
-4. **Detection**: Mean Absolute Error (MAE) between input and reconstruction.
-5. **Thresholds**: `0.45` (balanced default) and `0.50` (conservative option).
+1. **Preprocessing**: Forward/backward fills, MinMax scaling, low-variance filtering, high-correlation pruning, sliding windows of 10 timesteps.
+2. **Architecture**: LSTM (50 hidden units) + sigmoid output for failure probability.
+3. **Training**: Supervised on the processed SECOM dataset, capturing temporal context.
+4. **Inference**: Probability per window; classify as anomaly when probability ≥ threshold (default 0.7325).
 
 ## 🧪 Validation
 
-Evaluation performed on the held-out validation set captured in `training/secom_autoencoder_metadata.json`. The API reproduces the same inference logic for consistent results.
+- Precision-Recall sweep identified **0.7325** as the optimal F1 threshold.
+- Applying this cut-off yields **Accuracy 96.92%, Precision 73.11%, Recall 84.47%, F1 78.38%** on the validation set.
 
 ## 📝 License
 
