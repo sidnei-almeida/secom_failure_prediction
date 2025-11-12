@@ -1,157 +1,129 @@
 from __future__ import annotations
 
+import json
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Deque, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-from sklearn.feature_selection import VarianceThreshold
-from sklearn.preprocessing import MinMaxScaler
+
+
+def _minmax_scale(values: np.ndarray, feature_min: np.ndarray, feature_max: np.ndarray) -> np.ndarray:
+    denom = feature_max - feature_min
+    denom[denom == 0] = 1.0
+    return (values - feature_min) / denom
+
+
+def _normalize_timestamp(timestamp: Optional[str]) -> Optional[str]:
+    if timestamp is None:
+        return None
+    parsed = pd.to_datetime(timestamp, utc=True, errors="coerce")
+    if pd.isna(parsed):
+        raise ValueError(f"Invalid timestamp format: {timestamp}")
+    return parsed.isoformat()
 
 
 @dataclass
-class LSTMPreprocessor:
-    """
-    Preprocessing pipeline used to prepare SECOM sensor data for the LSTM model.
-    The pipeline mirrors the training-time steps:
-        1. Forward/backward fill missing values.
-        2. Min-Max scaling.
-        3. Variance threshold feature selection.
-        4. Removal of highly correlated features (>|0.95|).
-        5. Construction of sliding windows with a fixed number of timesteps.
-    """
-
-    scaler: MinMaxScaler
-    variance_selector: VarianceThreshold
-    selected_feature_names: List[str]
-    correlated_drop_columns: List[str]
-    final_feature_names: List[str]
-    base_feature_names: List[str]
+class PreprocessingConfig:
+    feature_names: List[str]
+    feature_min: np.ndarray
+    feature_max: np.ndarray
     timesteps: int
 
     @classmethod
-    def fit_from_csv(cls, csv_path: Path | str, timesteps: int = 10) -> "LSTMPreprocessor":
-        csv_path = Path(csv_path)
-        if not csv_path.exists():
-            raise FileNotFoundError(f"Training dataset not found at {csv_path}")
+    def load(cls, path: Path | str) -> "PreprocessingConfig":
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Preprocessing config not found at {path}")
 
-        data = pd.read_csv(csv_path)
+        with path.open("r", encoding="utf-8") as fp:
+            data = json.load(fp)
 
-        if "Time" in data.columns:
-            time_index = pd.to_datetime(data["Time"])
-            data = data.drop(columns=["Time"])
-        else:
-            time_index = pd.RangeIndex(len(data))
+        feature_names = data.get("feature_names")
+        feature_min = np.asarray(data.get("feature_min"), dtype=np.float32)
+        feature_max = np.asarray(data.get("feature_max"), dtype=np.float32)
+        timesteps = int(data.get("timesteps", 10))
 
-        if "Pass/Fail" in data.columns:
-            data = data.drop(columns=["Pass/Fail"])
-
-        base_feature_names = data.columns.tolist()
-        if not base_feature_names:
-            raise ValueError("No feature columns found after removing 'Time' and 'Pass/Fail'.")
-
-        data = data.ffill().bfill()
-
-        scaler = MinMaxScaler()
-        scaled = scaler.fit_transform(data)
-        scaled_df = pd.DataFrame(scaled, index=time_index, columns=base_feature_names)
-
-        variance_selector = VarianceThreshold(threshold=0.02)
-        scaled_variance = variance_selector.fit_transform(scaled_df)
-        selected_feature_indices = variance_selector.get_support(indices=True)
-        selected_feature_names = [base_feature_names[i] for i in selected_feature_indices]
-        variance_df = pd.DataFrame(scaled_variance, index=time_index, columns=selected_feature_names)
-
-        correlation_matrix = variance_df.corr(method="pearson")
-        upper_tri = correlation_matrix.where(np.triu(np.ones(correlation_matrix.shape), k=1).astype(bool))
-        correlated_drop_columns = [
-            column for column in upper_tri.columns if upper_tri[column].abs().max() > 0.95
-        ]
-
-        reduced_df = variance_df.drop(columns=correlated_drop_columns, errors="ignore")
-        final_feature_names = reduced_df.columns.tolist()
-        if not final_feature_names:
-            raise ValueError("Final feature list is empty after correlation filtering.")
+        if (
+            not feature_names
+            or len(feature_names) != len(feature_min)
+            or len(feature_names) != len(feature_max)
+        ):
+            raise ValueError("Preprocessing config is inconsistent: unequal feature lengths.")
 
         return cls(
-            scaler=scaler,
-            variance_selector=variance_selector,
-            selected_feature_names=selected_feature_names,
-            correlated_drop_columns=correlated_drop_columns,
-            final_feature_names=final_feature_names,
-            base_feature_names=base_feature_names,
+            feature_names=list(feature_names),
+            feature_min=feature_min,
+            feature_max=feature_max,
             timesteps=timesteps,
         )
 
-    @property
-    def base_feature_count(self) -> int:
-        return len(self.base_feature_names)
+
+class LSTMOnlinePreprocessor:
+    """
+    Applies Min-Max scaling to incoming observations using saved training statistics.
+    """
+
+    def __init__(self, config: PreprocessingConfig):
+        self.config = config
+        self._feature_count = len(config.feature_names)
 
     @property
-    def final_feature_count(self) -> int:
-        return len(self.final_feature_names)
+    def feature_names(self) -> List[str]:
+        return self.config.feature_names
 
-    def transform(
-        self,
-        instances: Sequence[Sequence[float]],
-        timestamps: Optional[Iterable[str]] = None,
-    ) -> Tuple[np.ndarray, List[int], List[Optional[pd.Timestamp]]]:
-        if not instances:
-            raise ValueError("`instances` must contain at least one observation.")
+    @property
+    def timesteps(self) -> int:
+        return self.config.timesteps
 
-        array = np.asarray(instances, dtype=np.float32)
-        if array.ndim != 2:
-            raise ValueError("`instances` must be a 2D array [n_samples, n_features].")
+    def _validate_vector(self, values: Sequence[float]) -> np.ndarray:
+        array = np.asarray(values, dtype=np.float32)
+        if array.shape != (self._feature_count,):
+            raise ValueError(f"Expected {self._feature_count} features, received {array.shape[0]}.")
+        return array
 
-        if array.shape[1] != self.base_feature_count:
-            raise ValueError(
-                f"Each observation must have {self.base_feature_count} features "
-                f"(received {array.shape[1]})."
-            )
+    def scale(self, values: Sequence[float]) -> np.ndarray:
+        vector = self._validate_vector(values)
+        return _minmax_scale(vector, self.config.feature_min, self.config.feature_max)
 
-        if timestamps is not None:
-            timestamps = list(timestamps)
-            if len(timestamps) != len(array):
-                raise ValueError("Length of `timestamps` must match the number of instances.")
-            index = pd.to_datetime(timestamps)
-        else:
-            index = pd.RangeIndex(len(array))
-
-        df = pd.DataFrame(array, index=index, columns=self.base_feature_names).sort_index()
+    def scale_batch(self, batch: Sequence[Sequence[float]]) -> np.ndarray:
+        if not batch:
+            raise ValueError("Batch must contain at least one observation.")
+        matrix = np.stack([self._validate_vector(row) for row in batch])
+        df = pd.DataFrame(matrix)
         df = df.ffill().bfill()
-
-        scaled = self.scaler.transform(df)
-        scaled_df = pd.DataFrame(scaled, index=df.index, columns=self.base_feature_names)
-
-        variance_array = self.variance_selector.transform(scaled_df)
-        variance_df = pd.DataFrame(variance_array, index=df.index, columns=self.selected_feature_names)
-
-        reduced_df = variance_df.drop(columns=self.correlated_drop_columns, errors="ignore")
-        reduced_df = reduced_df[self.final_feature_names]
-
-        if len(reduced_df) < self.timesteps:
-            raise ValueError(
-                f"At least {self.timesteps} observations are required to build a sequence window."
-            )
-
-        values = reduced_df.values.astype(np.float32)
-        windows: List[np.ndarray] = []
-        window_positions: List[int] = []
-        window_timestamps: List[Optional[pd.Timestamp]] = []
-
-        for start in range(len(values) - self.timesteps + 1):
-            end = start + self.timesteps
-            windows.append(values[start:end])
-            position = end - 1
-            index_value = reduced_df.index[position]
-            timestamp = index_value if isinstance(index_value, pd.Timestamp) else None
-            window_positions.append(int(position))
-            window_timestamps.append(timestamp)
-
-        return np.asarray(windows, dtype=np.float32), window_positions, window_timestamps
+        return _minmax_scale(df.values.astype(np.float32), self.config.feature_min, self.config.feature_max)
 
 
-__all__ = ["LSTMPreprocessor"]
+class WindowManager:
+    """
+    Maintains a rolling buffer of observations to build LSTM input windows.
+    """
+
+    def __init__(self, timesteps: int):
+        if timesteps <= 0:
+            raise ValueError("timesteps must be greater than zero.")
+        self.timesteps = timesteps
+        self._buffer: Deque[Tuple[np.ndarray, Optional[str]]] = deque(maxlen=timesteps)
+
+    def reset(self) -> None:
+        self._buffer.clear()
+
+    def size(self) -> int:
+        return len(self._buffer)
+
+    def add(self, vector: np.ndarray, timestamp: Optional[str]) -> Tuple[Optional[np.ndarray], Optional[str]]:
+        normalized_timestamp = _normalize_timestamp(timestamp) if timestamp else None
+        self._buffer.append((vector, normalized_timestamp))
+
+        if len(self._buffer) < self.timesteps:
+            return None, None
+
+        sequence = np.stack([entry[0] for entry in self._buffer], axis=0)
+        last_timestamp = self._buffer[-1][1]
+        return sequence, last_timestamp
 
 
+__all__ = ["PreprocessingConfig", "LSTMOnlinePreprocessor", "WindowManager"]

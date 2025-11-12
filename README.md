@@ -23,9 +23,10 @@ Production-ready anomaly detection service for semiconductor manufacturing, powe
 
 ### Key Features
 
-- 🧠 **Sequence model**: single-layer LSTM (50 hidden units) trained on timesteps of SECOM telemetry.
-- 🧪 **Reproducible preprocessing**: Python pipeline mirrors training (gap filling, MinMax scaling, variance + correlation filtering, sliding windows).
-- 🎯 **Default classification threshold**: 0.7325 (F1-optimal balance of precision and recall), with request-level overrides.
+- 🧠 **Sequence model**: single-layer LSTM (50 hidden units) trained on 10-step SECOM telemetry windows.
+- 🔄 **Online preprocessing endpoint**: converts raw readings (timestamp + 590 features) to Min-Max scaled values using saved training statistics.
+- 📈 **Rolling predictions**: `/predict` buffers the latest readings and responds with a probability once the 10-sample window is complete (resettable per simulation run).
+- 🎯 **Default classification threshold**: 0.7325 (F1-optimal balance), overridable per request.
 - 📊 **Rich metadata**: `/` endpoint reports feature set, timesteps, and evaluation metrics.
 - 🚀 **Hugging Face Space ready**: Dockerfile + `requirements.txt`, Git LFS tracking for large artifacts.
 
@@ -84,49 +85,65 @@ Returns project metadata, model type, default threshold, and evaluation metrics.
 ### `GET /health`
 Simple health probe used by deployment platforms.
 
-### `POST /predict`
-Detect anomalies from sequential SECOM samples.
+### `POST /preprocess`
+Applies Min-Max scaling to a single raw reading.
 
 **Request body**
 ```json
 {
-  "instances": [
-    [0.12, -0.53, 0.88, "...", 0.34],
-    [0.11, -0.51, 0.83, "...", 0.31],
-    "...",
-    [0.09, -0.47, 0.80, "...", 0.29]
-  ],
-  "threshold": 0.7325
+  "reading": {
+    "timestamp": "2008-07-19T12:32:00Z",
+    "values": [0.12, -0.53, 0.88, "...", 0.34]
+  }
 }
 ```
 
-- `instances`: chronologically ordered observations. Each observation must contain **590** sensor features and you must supply at least **10** rows to generate the first prediction window.
-- `threshold` (optional): override detection threshold; defaults to **0.7325**.
-- `timestamps` (optional): ISO datetime strings aligned with each observation.
-
-> ⚠️ Arrays are truncated above for readability. Ensure every observation carries the full feature set.
+- `values`: one observation containing **590** sensor features.
+- `timestamp` (optional): ISO datetime string; echoed back after validation.
 
 **Response**
 ```json
 {
-  "threshold": 0.7325,
-  "feature_names": ["0", "1", "...", "589"],
-  "predictions": [
-    {
-      "window_end_index": 9,
-      "timestamp": "2008-07-19T12:32:00",
-      "probability": 0.84,
-      "is_anomaly": true
-    },
-    {
-      "window_end_index": 10,
-      "timestamp": "2008-07-19T12:33:00",
-      "probability": 0.21,
-      "is_anomaly": false
-    }
-  ]
+  "scaled_values": [0.48, 0.32, 0.66, "...", 0.55],
+  "timestamp": "2008-07-19T12:32:00+00:00"
 }
 ```
+
+### `POST /predict`
+Ingests a reading, updates the rolling buffer, and returns a prediction once ten readings are available.
+
+**Request body**
+```json
+{
+  "reading": {
+    "timestamp": "2008-07-19T12:32:00Z",
+    "values": [0.12, -0.53, 0.88, "...", 0.34]
+  },
+  "threshold": 0.7325,
+  "reset_buffer": false
+}
+```
+
+- `reading`: same structure as `/preprocess`.
+- `threshold` (optional): override the classification threshold for this request.
+- `reset_buffer` (optional): clear the rolling window before ingesting the reading (useful when starting a new simulation run).
+
+**Response (after the 10th reading)**
+```json
+{
+  "scaled_values": [0.48, 0.32, 0.66, "...", 0.55],
+  "buffer_size": 10,
+  "timesteps": 10,
+  "prediction": {
+    "probability": 0.84,
+    "is_anomaly": true,
+    "threshold": 0.7325,
+    "window_end_timestamp": "2008-07-19T12:32:00+00:00"
+  }
+}
+```
+
+When fewer than ten readings have been ingested, the `prediction` field is `null`, allowing the frontend to keep streaming simulated data until the window fills.
 
 ## 📂 Project Structure
 
@@ -138,10 +155,8 @@ secom_failure_prediction/
 ├── README.md                        # Project documentation
 ├── models/
 │   ├── lstm_model.keras             # Trained LSTM weights (Git LFS)
-│   └── processed_uci_secom.csv      # Processed dataset used to fit preprocessing pipeline
-├── preprocess_pipeline.py            # Reusable preprocessing class for LSTM input
-└── training/
-    └── secom_autoencoder_metadata.json (legacy reference only)
+│   └── minmax_stats.json            # Min/Max statistics captured during training
+└── preprocess_pipeline.py            # Online scaler and rolling window helpers
 ```
 
 ## 📊 SECOM Dataset
@@ -151,13 +166,13 @@ secom_failure_prediction/
 - **Classes**: Normal (-1) vs Failure (1)
 - **Class Imbalance**: ≈93% Normal vs 7% Failures
 
-The repository ships only derived assets required for inference. `training/scaler_params.json` stores the StandardScaler statistics computed on the normal subset (`Pass/Fail = -1`), preserving the training regime without bundling the raw CSV.
+The repository ships only derived assets required for inference. `models/minmax_stats.json` stores the Min-Max statistics captured during training, so the API can scale each incoming reading without shipping the raw CSV.
 
 ## 🎓 Methodology
 
-1. **Preprocessing**: Forward/backward fills, MinMax scaling, low-variance filtering, high-correlation pruning, sliding windows of 10 timesteps.
-2. **Architecture**: LSTM (50 hidden units) + sigmoid output for failure probability.
-3. **Training**: Supervised on the processed SECOM dataset, capturing temporal context.
+1. **Preprocessing (training)**: Gap filling, Min-Max scaling, variance/correlation filtering, sliding windows of 10 timesteps.
+2. **Online preprocessing**: Validate timestamp, scale features with saved Min-Max stats, update internal rolling window.
+3. **Architecture**: LSTM (50 hidden units) + sigmoid output for failure probability.
 4. **Inference**: Probability per window; classify as anomaly when probability ≥ threshold (default 0.7325).
 
 ## 🧪 Validation
