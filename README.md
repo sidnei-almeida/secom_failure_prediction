@@ -1,3 +1,13 @@
+---
+title: Secom Production Anomaly
+emoji: 📚
+colorFrom: green
+colorTo: gray
+sdk: docker
+pinned: false
+license: mit
+---
+
 # SECOM Failure Prediction - Inference API
 
 Advanced anomaly detection service for semiconductor manufacturing, powered by a Neural Network Autoencoder and exposed through a FastAPI HTTP interface.
