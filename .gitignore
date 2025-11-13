@@ -36,3 +36,4 @@ build/
 # Reference app (não fazer commit)
 analise_canina_yolo/
 
+docs/api_endpoints.txt
